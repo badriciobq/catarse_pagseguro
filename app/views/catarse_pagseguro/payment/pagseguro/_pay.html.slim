@@ -1,0 +1,14 @@
+- if not defined?(code).nil?
+	script src="https://stc.sandbox.pagseguro.uol.com.br/pagseguro/api/v2/checkout/pagseguro.lightbox.js"
+
+	javascript:
+		PagSeguroLightbox({
+     code: "#{code}" 
+     }, {
+					success : function(transactionCode) {
+          	location.href="#{ main_app.project_url(order.project.id) }"
+       		},
+       		abort : function() {
+          	location.href="#{ main_app.edit_project_contribution_url(order.project.id, order.id) }"
+       		}
+     });

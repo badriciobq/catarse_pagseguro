@@ -1,5 +1,5 @@
 #encoding: utf-8
-require 'pag_seguro'
+require "pagseguro-oficial"
 
 module CatarsePagseguro::Payment
   class PagseguroController < ApplicationController
@@ -37,35 +37,32 @@ module CatarsePagseguro::Payment
 
 
     def pay
-      backer = current_user.backs.find params[:id]
-      begin
-        payment = PagSeguro::Payment.new(::Configuration[:pagseguro_email], ::Configuration[:pagseguro_token], id: backer.key)
+      order = current_user.contributions.find params[:id]
 
-        amount = ('%.2f' % backer.value.to_f)
+      payment = PagSeguro::PaymentRequest.new
 
-        payment.items = [
-          PagSeguro::Item.new(id: backer.id, description: "Apoio para o projeto #{backer.project.name}.",  amount: amount,  quantity: "1")
-        ]
+      payment.reference = order.id
+      payment.redirect_url = main_app.project_url(order.project.id)
+      payment.notification_url = payment_ipn_pagseguro_url
 
-        payment.redirect_url = payment_success_pagseguro_url(backer.id)
+      payment.items << {
+        id: order.id,
+        description: "Apoio para o projeto #{order.project.name}",
+        amount: order.value.to_f
+      }
 
-        backer.update_attribute :payment_method, 'PagSeguro'
-        backer.update_attribute :payment_token, payment.code
+      puts payment.to_json
 
-        redirect_to payment.checkout_payment_url
-      rescue Exception => e
-        ::Airbrake.notify({ :error_class => "Paypal Error", :error_message => "Paypal Error: #{e.inspect}", :parameters => params}) rescue nil
-        Rails.logger.info "-----> #{e.inspect}"
-        pagseguro_flash_error
-        return redirect_to main_app.new_project_backer_path(backer.project)
-      end
+      response = payment.register
+      
+      render :partial => 'pay', locals: { code: response.code, order: order }
     end
 
     def success
-      backer = current_user.backs.find params[:id]
+      backer = current_user.contributions.find params[:id]
       begin
         backer.update_attributes payment_id: params[:id_pagseguro]
-        redirect_to main_app.project_backer_path(project_id: backer.project.id, id: backer.id)
+        redirect_to main_app.project_path(project_id: backer.project.id, id: backer.id)
       rescue Exception => e
         ::Airbrake.notify({ :error_class => "Paypal Error", :error_message => "Paypal Error: #{e.message}", :parameters => params}) rescue nil
         Rails.logger.info "-----> #{e.inspect}"
@@ -75,7 +72,7 @@ module CatarsePagseguro::Payment
     end
 
     def cancel
-      backer = current_user.backs.find params[:id]
+      backer = current_user.contributions.find params[:id]
       flash[:failure] = 'Pagamento cancelado'
       redirect_to main_app.new_project_backer_path(backer.project)
     end
@@ -89,5 +86,7 @@ module CatarsePagseguro::Payment
     def pagseguro_flash_success
       flash[:success] = 'Apoio realizado com sucesso!'
     end
+
+    
   end
 end
