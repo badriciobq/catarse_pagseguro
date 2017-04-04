@@ -6,9 +6,9 @@
      code: "#{code}" 
      }, {
 					success : function(transactionCode) {
-          	location.href="#{ main_app.project_url(order.project.id) }"
+          	location.href="#{ payment_success_pagseguro_url(order.id) }"
        		},
        		abort : function() {
-          	location.href="#{ main_app.edit_project_contribution_url(order.project.id, order.id) }"
+          	location.href="#{ payment_cancel_pagseguro_path(order.id) }"
        		}
      });
