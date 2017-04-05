@@ -10,37 +10,34 @@ module CatarsePagseguro::Payment
 
     layout :false
 
+    #variáveis para facilitar o mapeamento de códigos Pagseguro
+    STATUS = ["no status", "pending", "in analysis", "paid", "available", "em disputa", "devolved","canceled"]
+
+    PAYMENT_METHOD = ["no info", "CartaoDeCredito", "Boleto", "DebitoOnline", "SaldoPagseguro", "", "","DepositoEmConta"]
+
+
     def review
     end
 
     def ipn
-      return unless request.post?
+      transaction = PagSeguro::Transaction.find_by_notification_code(params[:notificationCode])
 
-      notification_code = params[:notificationCode]
-      notification = PagSeguro::Notification.new(::Configuration[:pagseguro_email], ::Configuration[:pagseguro_token], notification_code)
-
-      backer = Backer.find_by_key notification.id
-      backer.confirm! if notification.approved?
-
-      backer.update_attributes({
-        payment_service_fee: notification.fee_amount.to_f
-      })
-
-      if backer.payment_id != notification.transaction_id
-        backer.update_attributes payment_id: notification.transaction_id
+      if transaction.errors.empty?
+        # Processa a notificação. A melhor maneira de se fazer isso é realizar
+        # o processamento em background. Uma boa alternativa para isso é a
+        # biblioteca Sidekiq.
+        payment = Payment.find_by_key(transaction.code)
+        payment.state = STATUS[transaction.status.id.to_i]
+        payment.save
       end
 
-      return render status: 200, nothing: true
-    rescue Exception => e
-      return render status: 500, text: e.inspect
+      render nothing: true, status: 200
     end
-
 
     def pay
       order = current_user.contributions.find params[:id]
 
       payment = PagSeguro::PaymentRequest.new
-
       payment.reference = order.id
       payment.redirect_url = main_app.project_url(order.project.id)
       payment.notification_url = payment_ipn_pagseguro_url
@@ -52,25 +49,69 @@ module CatarsePagseguro::Payment
       }
 
       response = payment.register
-      
+
       render :partial => 'pay', locals: { code: response.code, order: order }
     end
 
+
     def success
       backer = current_user.contributions.find params[:id]
-      begin
 
-        p = Payment.new(contribution: backer, value: backer.value, gateway: "pagseguro", payment_method: "PagSeguro")
-        p.save
+      if params.has_key?(:transactionCode)
+        response = PagSeguro::Transaction.find_by_code(params[:transactionCode])
 
-        pagseguro_flash_success
-        redirect_to main_app.project_path(backer.project.id)
-      rescue Exception => e
-        ::Airbrake.notify({ :error_class => "PagSeguro Error", :error_message => "PagSeguro Error: #{e.message}", :parameters => params}) rescue nil
-        Rails.logger.info "-----> #{e.inspect}"
-        pagseguro_flash_error
-        return redirect_to main_app.project_path(backer.project.id)
-      end
+        begin
+
+          payment = {
+            contribution: backer,
+            value: backer.value,
+            payment_method: PAYMENT_METHOD[response.payment_method.type_id.to_i],
+            state: STATUS[response.status.id.to_i],
+            gateway: "pagseguro",
+            gateway_id: response.reference,
+            gateway_data: response.to_json,
+            installments: response.installments,
+            key: response.code,
+            gateway_fee: (response.creditor_fees.intermediation_rate_amount.to_f + response.creditor_fees.intermediation_fee_amount.to_f)
+          }
+
+          p = Payment.new(payment)
+          p.save
+
+          pagseguro_flash_success
+          redirect_to main_app.project_path(backer.project.id)
+        rescue Exception => e
+          ::Airbrake.notify({ :error_class => "PagSeguro Error", :error_message => "PagSeguro Error: #{e.message}", :parameters => params}) rescue nil
+          Rails.logger.info "-----> #{e.inspect}"
+          pagseguro_flash_error
+          return redirect_to main_app.project_path(backer.project.id)
+        end
+
+      else # else do if params.has_key
+        begin
+
+          payment = {
+            contribution: backer,
+            value: backer.value,
+            payment_method: "pagseguro",
+            state: "pending",
+            gateway: "pagseguro"
+          }
+
+          p = Payment.new(payment)
+          p.save
+
+          pagseguro_flash_success
+          redirect_to main_app.project_path(backer.project.id)
+
+        rescue Exception => e
+          ::Airbrake.notify({ :error_class => "PagSeguro Error", :error_message => "PagSeguro Error: #{e.message}", :parameters => params}) rescue nil
+          Rails.logger.info "-----> #{e.inspect}"
+          pagseguro_flash_error
+          return redirect_to main_app.project_path(backer.project.id)
+        end
+
+      end # if params.has_key
     end
 
     def cancel

@@ -6,9 +6,11 @@
      code: "#{code}" 
      }, {
 					success : function(transactionCode) {
-          	location.href="#{ payment_success_pagseguro_url(order.id) }"
+            var url="#{ payment_success_pagseguro_url(order.id) }/?transactionCode=" + transactionCode
+            
+          	location.href=url
        		},
        		abort : function() {
-          	location.href="#{ payment_cancel_pagseguro_path(order.id) }"
+          	location.href="#{ payment_cancel_pagseguro_url(order.id) }"
        		}
      });
