@@ -13,7 +13,7 @@ module CatarsePagseguro::Payment
     #variáveis para facilitar o mapeamento de códigos Pagseguro
     STATUS = ["no status", "pending", "in analysis", "paid", "available", "em disputa", "devolved","canceled"]
 
-    PAYMENT_METHOD = ["no info", "CartaoDeCredito", "Boleto", "DebitoOnline", "SaldoPagseguro", "", "","DepositoEmConta"]
+    PAYMENT_METHOD = ["no info", "CartaoDeCredito", "BoletoBancario", "DebitoBancario", "SaldoPagseguro", "", "","DepositoEmConta"]
 
 
     def review
@@ -27,7 +27,12 @@ module CatarsePagseguro::Payment
         # o processamento em background. Uma boa alternativa para isso é a
         # biblioteca Sidekiq.
         payment = Payment.find_by_key(transaction.code)
-        payment.state = STATUS[transaction.status.id.to_i]
+        if not transaction.nil?
+          payment.state = STATUS[transaction.status.id.to_i]
+        else
+          payment.state = 0
+        end
+        
         payment.save
       end
 
